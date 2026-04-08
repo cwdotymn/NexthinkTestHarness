@@ -13,7 +13,7 @@ This project addresses the challenge faced by Nexthink practitioners transitioni
 - Develop and refine automation scripts without platform dependencies
 - Train on Nexthink remote action concepts using mock scenarios
 
-## Key Features
+## Key Features (Planned)
 
 - **Mock Remote Actions**: Simulate Nexthink remote action execution with configurable responses
 - **Cross-Platform Support**: Test both Windows PowerShell and macOS Bash scripts
@@ -23,7 +23,7 @@ This project addresses the challenge faced by Nexthink practitioners transitioni
 ## Target Audience
 
 This tool is specifically designed for Nexthink practitioners who are:
-- Moving between different Nexthink implementation roles
+- Moving between different Nexthink implementation roles as there is no Nexthink Sandbox
 - Learning remote action development and testing
 - Needing to validate scripts in controlled environments
 - Preparing for Nexthink certification or role transitions
