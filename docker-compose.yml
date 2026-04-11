@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  nexthink-harness:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./test_scripts:/app/test_scripts
+    environment:
+      - FLASK_ENV=development
+      - FLASK_APP=app.py
+    container_name: nexthink-test-harness
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  test_scripts:

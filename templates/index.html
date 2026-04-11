@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexthink Test Harness</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🔧 Nexthink Test Harness</h1>
+            <p class="subtitle">Test PowerShell & Bash scripts without Nexthink access</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Navigation Tabs -->
+            <nav class="tabs">
+                <button class="tab-btn active" data-tab="script-execution">Script Execution</button>
+                <button class="tab-btn" data-tab="nexthink-api">Nexthink API</button>
+                <button class="tab-btn" data-tab="examples">Examples</button>
+                <button class="tab-btn" data-tab="history">History</button>
+            </nav>
+
+            <!-- Tab 1: Script Execution -->
+            <section id="script-execution" class="tab-content active">
+                <h2>Execute Scripts</h2>
+                
+                <div class="form-group">
+                    <label for="script-type">Script Type:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="script-type" value="bash" checked>
+                            Bash Script
+                        </label>
+                        <label>
+                            <input type="radio" name="script-type" value="powershell">
+                            PowerShell Script
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="script-content">Script Content:</label>
+                    <textarea 
+                        id="script-content" 
+                        placeholder="Enter your script here...&#10;&#10;Example (Bash):&#10;echo 'Hello World'&#10;whoami&#10;date"
+                        rows="10"
+                    ></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="script-args">Arguments (optional):</label>
+                    <input 
+                        type="text" 
+                        id="script-args" 
+                        placeholder="Separate multiple arguments with commas"
+                    >
+                </div>
+
+                <!-- Script Upload Section -->
+                <div class="card">
+                    <h3>📤 Upload Scripts</h3>
+                    <div class="form-group">
+                        <label for="script-file">Choose Script File:</label>
+                        <input 
+                            type="file" 
+                            id="script-file" 
+                            accept=".sh,.ps1,.bash,.txt"
+                        >
+                    </div>
+                    <button id="upload-btn" class="btn btn-secondary">Upload Script</button>
+                </div>
+
+                <!-- Uploaded Scripts -->
+                <div id="uploaded-scripts" class="card hidden">
+                    <h3>📚 Uploaded Scripts</h3>
+                    <div id="scripts-list" class="scripts-list"></div>
+                </div>
+
+                <button id="execute-btn" class="btn btn-primary">▶ Execute Script</button>
+
+                <!-- Results -->
+                <div id="execution-results" class="results hidden">
+                    <h3>Results</h3>
+                    <div class="result-item">
+                        <label>Status:</label>
+                        <div id="result-status" class="status-badge"></div>
+                    </div>
+                    <div class="result-item">
+                        <label>Return Code:</label>
+                        <div id="result-return-code" class="code"></div>
+                    </div>
+                    <div class="result-item">
+                        <label>Standard Output:</label>
+                        <pre id="result-stdout" class="output"></pre>
+                    </div>
+                    <div class="result-item">
+                        <label>Standard Error:</label>
+                        <pre id="result-stderr" class="output"></pre>
+                    </div>
+                    <button id="copy-results-btn" class="btn btn-secondary">📋 Copy Results</button>
+                </div>
+            </section>
+
+            <!-- Tab 2: Nexthink API -->
+            <section id="nexthink-api" class="tab-content">
+                <h2>Nexthink API Simulation</h2>
+
+                <!-- Device Info Card -->
+                <div class="card">
+                    <h3>Device Information</h3>
+                    <button id="get-device-btn" class="btn btn-secondary">Get Device Info</button>
+                    <div id="device-info" class="json-display hidden"></div>
+                </div>
+
+                <!-- Persona Info Card -->
+                <div class="card">
+                    <h3>Persona Information</h3>
+                    <div class="form-group">
+                        <label for="persona-id">Persona ID:</label>
+                        <input 
+                            type="text" 
+                            id="persona-id" 
+                            placeholder="Enter persona ID"
+                            value="persona-001"
+                        >
+                    </div>
+                    <button id="get-persona-btn" class="btn btn-secondary">Get Persona Info</button>
+                    <div id="persona-info" class="json-display hidden"></div>
+                </div>
+
+                <!-- Action Simulation Card -->
+                <div class="card">
+                    <h3>Simulate Remote Action</h3>
+                    <div class="form-group">
+                        <label for="action-id">Action ID:</label>
+                        <input 
+                            type="text" 
+                            id="action-id" 
+                            placeholder="Enter action ID"
+                            value="action-001"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="action-success">Result:</label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" name="action-success" value="true" checked>
+                                Success
+                            </label>
+                            <label>
+                                <input type="radio" name="action-success" value="false">
+                                Failure
+                            </label>
+                        </div>
+                    </div>
+                    <button id="simulate-action-btn" class="btn btn-secondary">Simulate Action</button>
+                    <div id="action-result" class="json-display hidden"></div>
+                </div>
+            </section>
+
+            <!-- Tab 3: Examples -->
+            <section id="examples" class="tab-content">
+                <h2>Example Scripts</h2>
+                
+                <div class="examples-grid">
+                    <!-- Bash Examples -->
+                    <div class="examples-section">
+                        <h3>Bash Examples</h3>
+                        <div class="example-list">
+                            <div class="example-card">
+                                <h4>System Information</h4>
+                                <p>Display system info, hostname, kernel version, CPU cores, and memory</p>
+                                <button class="btn btn-small" data-example="bash_system_info">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Network Test</h4>
+                                <p>Test connectivity to 8.8.8.8 with ping</p>
+                                <button class="btn btn-small" data-example="bash_network_test">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Disk Usage</h4>
+                                <p>Check disk usage on root partition</p>
+                                <button class="btn btn-small" data-example="bash_disk_usage">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Service Status</h4>
+                                <p>Check if a system service is running</p>
+                                <button class="btn btn-small" data-example="bash_service_check">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Persona Script</h4>
+                                <p>Example persona-specific bash script</p>
+                                <button class="btn btn-small" data-example="bash_persona">Load</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PowerShell Examples -->
+                    <div class="examples-section">
+                        <h3>PowerShell Examples</h3>
+                        <div class="example-list">
+                            <div class="example-card">
+                                <h4>System Information</h4>
+                                <p>Get computer info, OS, RAM, and other system details</p>
+                                <button class="btn btn-small" data-example="ps_system_info">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Network Test</h4>
+                                <p>Test connectivity to 8.8.8.8</p>
+                                <button class="btn btn-small" data-example="ps_network_test">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Check Service</h4>
+                                <p>Check status of a Windows service</p>
+                                <button class="btn btn-small" data-example="ps_service_check">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Running Processes</h4>
+                                <p>Get high-CPU processes</p>
+                                <button class="btn btn-small" data-example="ps_processes">Load</button>
+                            </div>
+                            <div class="example-card">
+                                <h4>Persona Script</h4>
+                                <p>Example persona-specific PowerShell script</p>
+                                <button class="btn btn-small" data-example="ps_persona">Load</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 4: History -->
+            <section id="history" class="tab-content">
+                <h2>Execution History</h2>
+                <div class="history-controls">
+                    <button id="clear-history-btn" class="btn btn-secondary">🗑️ Clear History</button>
+                </div>
+                <div id="history-list" class="history-list">
+                    <p class="empty-state">No execution history yet. Run some scripts to see them here.</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Nexthink Test Harness v1.0 | <a href="https://github.com" target="_blank">GitHub</a></p>
+        </footer>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loading-spinner" class="spinner hidden">
+        <div class="spinner-content">
+            <div class="spinner-circle"></div>
+            <p>Processing...</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
