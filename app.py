@@ -30,11 +30,10 @@ class ScriptExecutor:
     def execute_powershell(script_content, args=None):
         """Execute a PowerShell script
         
-        In WSL: uses powershell.exe to run scripts on the Windows host
-        On native Windows: uses the system powershell
+        In WSL: powershell.exe uses Windows interop to run on Windows host
+        On Windows: executes natively
         """
         try:
-            # Use powershell.exe for WSL/Windows, powershell for native Linux/Core
             cmd = ["powershell.exe", "-NoProfile", "-Command", script_content]
             if args:
                 cmd.extend(args)
@@ -43,8 +42,7 @@ class ScriptExecutor:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
-                shell=False
+                timeout=30
             )
             
             return {
@@ -54,9 +52,9 @@ class ScriptExecutor:
                 "return_code": result.returncode
             }
         except FileNotFoundError:
-            # Fallback to 'powershell' if powershell.exe not found
+            # Fallback to pwsh if powershell.exe not found
             try:
-                cmd = ["powershell", "-NoProfile", "-Command", script_content]
+                cmd = ["pwsh", "-NoProfile", "-Command", script_content]
                 if args:
                     cmd.extend(args)
                 
