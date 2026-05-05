@@ -1,344 +1,448 @@
 """
 Nexthink Test Harness - Flask Application
-A test harness for simulating Nexthink remote actions and testing PowerShell/bash scripts
+A test harness for simulating Nexthink remote actions, NQL queries, and device fleet management.
 """
 
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-import subprocess
-import json
 import os
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
+
+from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
+from examples import get_example_scripts
+from fleet import get_fleet, get_device
+from nql import execute_nql, get_field_reference
+
+load_dotenv()
+
+app = Flask(__name__, template_folder="templates", static_folder="static")
 CORS(app)
 
+# ---------------------------------------------------------------------------
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+# ---------------------------------------------------------------------------
+FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
+FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
+FLASK_DEBUG = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+SCRIPT_TIMEOUT = int(os.getenv("SCRIPT_TIMEOUT", 30))
+MAX_SCRIPT_LENGTH = int(os.getenv("MAX_SCRIPT_LENGTH", 50_000))
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", 16))
+
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
 SCRIPT_DIR = Path(__file__).parent / "test_scripts"
 SCRIPT_DIR.mkdir(exist_ok=True)
 UPLOAD_FOLDER = SCRIPT_DIR / "uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
-ALLOWED_EXTENSIONS = {'sh', 'ps1', 'bash', 'txt'}
+ALLOWED_EXTENSIONS = {"sh", "ps1", "bash", "txt"}
 
 
-class ScriptExecutor:
-    """Handles execution of PowerShell and bash scripts"""
-    
-    @staticmethod
-    def execute_powershell(script_content, args=None):
-        """Execute a PowerShell script
-        
-        In WSL: powershell.exe uses Windows interop to run on Windows host
-        On Windows: executes natively
-        """
-        try:
-            cmd = ["powershell.exe", "-NoProfile", "-Command", script_content]
-            if args:
-                cmd.extend(args)
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            return {
-                "status": "success" if result.returncode == 0 else "error",
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "return_code": result.returncode
-            }
-        except FileNotFoundError:
-            # Fallback to pwsh if powershell.exe not found
-            try:
-                cmd = ["pwsh", "-NoProfile", "-Command", script_content]
-                if args:
-                    cmd.extend(args)
-                
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                return {
-                    "status": "success" if result.returncode == 0 else "error",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "return_code": result.returncode
-                }
-            except Exception as e:
-                return {
-                    "status": "error",
-                    "error": f"PowerShell not found: {str(e)}",
-                    "return_code": -1
-                }
-        except subprocess.TimeoutExpired:
-            return {
-                "status": "error",
-                "error": "Script execution timed out",
-                "return_code": -1
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "error": str(e),
-                "return_code": -1
-            }
-    
-    @staticmethod
-    def execute_bash(script_content, args=None):
-        """Execute a bash script"""
-        try:
-            cmd = ["bash", "-c", script_content]
-            if args:
-                cmd.extend(args)
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            return {
-                "status": "success" if result.returncode == 0 else "error",
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "return_code": result.returncode
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "status": "error",
-                "error": "Script execution timed out",
-                "return_code": -1
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "error": str(e),
-                "return_code": -1
-            }
-
-
-class NexthinkSimulator:
-    """Simulates Nexthink remote actions and API responses"""
-    
-    @staticmethod
-    def mock_device_info():
-        """Mock device information response"""
-        return {
-            "device_id": "mock-device-001",
-            "os": "Windows 10",
-            "hostname": "test-machine",
-            "ip_address": "192.168.1.100",
-            "last_sync": "2024-04-10T10:00:00Z"
-        }
-    
-    @staticmethod
-    def mock_persona_info(persona_id):
-        """Mock persona information"""
-        return {
-            "persona_id": persona_id,
-            "name": f"Persona-{persona_id}",
-            "scripts": [],
-            "actions": []
-        }
-    
-    @staticmethod
-    def mock_action_result(action_id, success=True):
-        """Mock action execution result"""
-        return {
-            "action_id": action_id,
-            "status": "completed" if success else "failed",
-            "timestamp": "2024-04-10T10:00:00Z",
-            "result": {
-                "exit_code": 0 if success else 1,
-                "message": "Action completed successfully" if success else "Action failed"
-            }
-        }
-
-
-# Routes
-@app.route('/', methods=['GET'])
-def index():
-    """Serve the web frontend"""
-    return render_template('index.html')
-
-
-@app.route('/api', methods=['GET'])
-def api_info():
-    """API information endpoint"""
-    return jsonify({
-        "service": "Nexthink Test Harness",
-        "version": "1.0.0",
-        "endpoints": {
-            "execute_powershell": "/api/execute/powershell",
-            "execute_bash": "/api/execute/bash",
-            "device_info": "/api/nexthink/device",
-            "persona_info": "/api/nexthink/persona/<persona_id>",
-            "simulate_action": "/api/nexthink/action"
-        }
-    })
-
-
-@app.route('/api/execute/powershell', methods=['POST'])
-def execute_powershell():
-    """Execute a PowerShell script"""
-    data = request.get_json()
-    
-    if not data or 'script' not in data:
-        return jsonify({"error": "Missing 'script' parameter"}), 400
-    
-    script = data.get('script')
-    args = data.get('args', [])
-    
-    result = ScriptExecutor.execute_powershell(script, args)
-    return jsonify(result)
-
-
-@app.route('/api/execute/bash', methods=['POST'])
-def execute_bash():
-    """Execute a bash script"""
-    data = request.get_json()
-    
-    if not data or 'script' not in data:
-        return jsonify({"error": "Missing 'script' parameter"}), 400
-    
-    script = data.get('script')
-    args = data.get('args', [])
-    
-    result = ScriptExecutor.execute_bash(script, args)
-    return jsonify(result)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def allowed_file(filename):
-    """Check if file extension is allowed"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-@app.route('/api/scripts/upload', methods=['POST'])
-def upload_script():
-    """Upload a script file"""
-    if 'file' not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
-    
-    if not allowed_file(file.filename):
-        return jsonify({"error": "File type not allowed. Allowed: .sh, .ps1, .bash, .txt"}), 400
-    
-    try:
-        filename = secure_filename(file.filename)
-        filepath = UPLOAD_FOLDER / filename
-        file.save(str(filepath))
-        
-        return jsonify({
-            "status": "success",
-            "filename": filename,
-            "message": f"Script '{filename}' uploaded successfully"
-        }), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def _validate_script(script):
+    if not script or not script.strip():
+        return "Script content cannot be empty"
+    if len(script) > MAX_SCRIPT_LENGTH:
+        return f"Script exceeds maximum length of {MAX_SCRIPT_LENGTH} characters"
+    return None
 
 
-@app.route('/api/scripts/list', methods=['GET'])
-def list_scripts():
-    """List all uploaded scripts"""
-    try:
-        scripts = []
-        if UPLOAD_FOLDER.exists():
-            for file in UPLOAD_FOLDER.iterdir():
-                if file.is_file() and allowed_file(file.name):
-                    scripts.append({
-                        "filename": file.name,
-                        "size": file.stat().st_size,
-                        "extension": file.suffix
-                    })
-        return jsonify({"scripts": sorted(scripts, key=lambda x: x['filename'])})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# ---------------------------------------------------------------------------
+# Script executor
+# ---------------------------------------------------------------------------
+class ScriptExecutor:
+
+    @staticmethod
+    def _run(cmd, timeout):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            return {
+                "status": "success" if result.returncode == 0 else "error",
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "return_code": result.returncode,
+            }
+        except FileNotFoundError:
+            raise
+        except subprocess.TimeoutExpired:
+            return {"status": "error", "error": f"Timed out after {timeout}s",
+                    "stdout": "", "stderr": "", "return_code": -1}
+        except Exception as exc:
+            return {"status": "error", "error": str(exc),
+                    "stdout": "", "stderr": "", "return_code": -1}
+
+    @classmethod
+    def execute_powershell(cls, script_content, args=None):
+        args = args or []
+        last_error = None
+        for binary in ("powershell.exe", "pwsh"):
+            cmd = [binary, "-NoProfile", "-Command", script_content] + args
+            try:
+                return cls._run(cmd, SCRIPT_TIMEOUT)
+            except FileNotFoundError as exc:
+                last_error = exc
+                continue
+        return {"status": "error", "error": "PowerShell not found (tried powershell.exe and pwsh)",
+                "stdout": "", "stderr": "", "return_code": -1}
+
+    @classmethod
+    def execute_bash(cls, script_content, args=None):
+        args = args or []
+        return cls._run(["bash", "-c", script_content] + args, SCRIPT_TIMEOUT)
 
 
-@app.route('/api/scripts/<filename>', methods=['GET'])
-def get_script(filename):
-    """Get content of a specific script"""
-    try:
-        filename = secure_filename(filename)
-        filepath = UPLOAD_FOLDER / filename
-        
-        if not filepath.exists() or not allowed_file(filename):
-            return jsonify({"error": "Script not found"}), 404
-        
-        with open(filepath, 'r') as f:
-            content = f.read()
-        
-        return jsonify({
-            "filename": filename,
-            "content": content,
-            "type": "powershell" if filename.endswith('.ps1') else "bash"
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# ---------------------------------------------------------------------------
+# Nexthink simulator (legacy single-device mock — kept for backwards compat)
+# ---------------------------------------------------------------------------
+class NexthinkSimulator:
+
+    @staticmethod
+    def mock_device_info():
+        # Return first fleet device for backwards-compat endpoint
+        fleet = get_fleet()
+        d = fleet[0]
+        return {
+            "device_id": d["device_id"],
+            "os": d["os_name"],
+            "hostname": d["device_name"],
+            "ip_address": "192.168.1.100",
+            "last_sync": _now_iso(),
+        }
+
+    @staticmethod
+    def mock_persona_info(persona_id):
+        return {"persona_id": persona_id, "name": f"Persona-{persona_id}",
+                "scripts": [], "actions": []}
+
+    @staticmethod
+    def mock_action_result(action_id, success=True):
+        return {
+            "action_id": action_id,
+            "status": "completed" if success else "failed",
+            "timestamp": _now_iso(),
+            "result": {
+                "exit_code": 0 if success else 1,
+                "message": "Action completed successfully" if success else "Action failed",
+            },
+        }
 
 
-@app.route('/api/nexthink/device', methods=['GET'])
-def get_device_info():
-    """Get mock device information"""
-    return jsonify(NexthinkSimulator.mock_device_info())
+# ---------------------------------------------------------------------------
+# Routes — UI
+# ---------------------------------------------------------------------------
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 
 
-@app.route('/api/nexthink/persona/<persona_id>', methods=['GET'])
-def get_persona_info(persona_id):
-    """Get mock persona information"""
-    return jsonify(NexthinkSimulator.mock_persona_info(persona_id))
+@app.route("/api", methods=["GET"])
+def api_info():
+    return jsonify({
+        "service": "Nexthink Test Harness",
+        "version": "1.2.0",
+        "endpoints": {
+            "execute_powershell": "/api/execute/powershell",
+            "execute_bash": "/api/execute/bash",
+            "examples": "/api/examples",
+            "fleet": "/api/fleet",
+            "fleet_device": "/api/fleet/<device_id>",
+            "fleet_stats": "/api/fleet/stats",
+            "nql_query": "/api/nql",
+            "nql_fields": "/api/nql/fields",
+            "remote_action": "/api/nexthink/action",
+            "device_action": "/api/fleet/<device_id>/action",
+            "upload_script": "/api/scripts/upload",
+            "list_scripts": "/api/scripts/list",
+            "get_script": "/api/scripts/<filename>",
+        },
+    })
 
 
-@app.route('/api/nexthink/action', methods=['POST'])
-def simulate_action():
-    """Simulate a Nexthink remote action"""
+# ---------------------------------------------------------------------------
+# Routes — Script execution
+# ---------------------------------------------------------------------------
+@app.route("/api/execute/powershell", methods=["POST"])
+def execute_powershell():
     data = request.get_json()
-    
-    if not data or 'action_id' not in data:
-        return jsonify({"error": "Missing 'action_id' parameter"}), 400
-    
-    action_id = data.get('action_id')
-    success = data.get('success', True)
-    
-    result = NexthinkSimulator.mock_action_result(action_id, success)
+    if not data or "script" not in data:
+        return jsonify({"error": "Missing 'script' parameter"}), 400
+    err = _validate_script(data["script"])
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify(ScriptExecutor.execute_powershell(data["script"], data.get("args", [])))
+
+
+@app.route("/api/execute/bash", methods=["POST"])
+def execute_bash():
+    data = request.get_json()
+    if not data or "script" not in data:
+        return jsonify({"error": "Missing 'script' parameter"}), 400
+    err = _validate_script(data["script"])
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify(ScriptExecutor.execute_bash(data["script"], data.get("args", [])))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Examples
+# ---------------------------------------------------------------------------
+@app.route("/api/examples", methods=["GET"])
+def get_examples():
+    return jsonify(get_example_scripts())
+
+
+# ---------------------------------------------------------------------------
+# Routes — Fleet
+# ---------------------------------------------------------------------------
+@app.route("/api/fleet", methods=["GET"])
+def fleet_list():
+    """Return the full device fleet with optional filtering."""
+    fleet = get_fleet()
+
+    # Simple query params for quick filtering without NQL
+    site = request.args.get("site")
+    department = request.args.get("department")
+    compliance = request.args.get("compliance")
+    os_name = request.args.get("os")
+
+    results = fleet
+    if site:
+        results = [d for d in results if d["site"].lower() == site.lower()]
+    if department:
+        results = [d for d in results if d["department"].lower() == department.lower()]
+    if compliance:
+        results = [d for d in results if d["compliance_status"].lower() == compliance.lower()]
+    if os_name:
+        results = [d for d in results if os_name.lower() in d["os_name"].lower()]
+
+    limit = request.args.get("limit", type=int)
+    if limit:
+        results = results[:limit]
+
+    return jsonify({"devices": results, "count": len(results)})
+
+
+@app.route("/api/fleet/stats", methods=["GET"])
+def fleet_stats():
+    """Aggregate statistics across the fleet."""
+    fleet = get_fleet()
+
+    from collections import Counter
+
+    os_dist = Counter(d["os_name"] for d in fleet)
+    site_dist = Counter(d["site"] for d in fleet)
+    dept_dist = Counter(d["department"] for d in fleet)
+    compliance_dist = Counter(d["compliance_status"] for d in fleet)
+
+    cpu_values = [d["cpu_usage"] for d in fleet]
+    disk_values = [d["disk_free_pct"] for d in fleet]
+    stale = [d for d in fleet if d["last_seen_days"] >= 7]
+
+    return jsonify({
+        "total_devices": len(fleet),
+        "by_site": dict(site_dist),
+        "by_os": dict(os_dist),
+        "by_department": dict(dept_dist),
+        "by_compliance": dict(compliance_dist),
+        "avg_cpu_usage": round(sum(cpu_values) / len(cpu_values), 1),
+        "avg_disk_free_pct": round(sum(disk_values) / len(disk_values), 1),
+        "stale_devices": len(stale),
+        "high_cpu_devices": len([d for d in fleet if d["cpu_usage"] > 80]),
+        "low_disk_devices": len([d for d in fleet if d["disk_free_pct"] < 15]),
+    })
+
+
+@app.route("/api/fleet/<device_id>", methods=["GET"])
+def fleet_device(device_id):
+    """Get a single device by ID."""
+    device = get_device(device_id)
+    if not device:
+        return jsonify({"error": f"Device '{device_id}' not found"}), 404
+    return jsonify(device)
+
+
+@app.route("/api/fleet/<device_id>/action", methods=["POST"])
+def device_action(device_id):
+    """Execute a remote action against a specific device."""
+    device = get_device(device_id)
+    if not device:
+        return jsonify({"error": f"Device '{device_id}' not found"}), 404
+
+    data = request.get_json()
+    if not data or "action_name" not in data:
+        return jsonify({"error": "Missing 'action_name' parameter"}), 400
+
+    action_name = data["action_name"]
+    script = data.get("script", "")
+    script_type = data.get("script_type", "powershell")
+
+    # Execute script locally if provided
+    execution_result = None
+    if script:
+        err = _validate_script(script)
+        if err:
+            return jsonify({"error": err}), 400
+        if script_type == "bash":
+            execution_result = ScriptExecutor.execute_bash(script)
+        else:
+            execution_result = ScriptExecutor.execute_powershell(script)
+
+    success = execution_result is None or execution_result.get("return_code", 0) == 0
+
+    return jsonify({
+        "action_name": action_name,
+        "device_id": device_id,
+        "device_name": device["device_name"],
+        "site": device["site"],
+        "status": "completed" if success else "failed",
+        "timestamp": _now_iso(),
+        "execution": execution_result,
+        "result": {
+            "exit_code": 0 if success else 1,
+            "message": "Action completed successfully" if success else "Action failed",
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
+# Routes — NQL
+# ---------------------------------------------------------------------------
+@app.route("/api/nql", methods=["POST"])
+def nql_query():
+    """Execute an NQL query against the fleet."""
+    data = request.get_json()
+    if not data or "query" not in data:
+        return jsonify({"error": "Missing 'query' parameter"}), 400
+
+    query = data["query"].strip()
+    if not query:
+        return jsonify({"error": "Query cannot be empty"}), 400
+
+    fleet = get_fleet()
+    result = execute_nql(query, fleet)
+
+    if result["error"]:
+        return jsonify({"error": result["error"]}), 400
+
     return jsonify(result)
 
 
+@app.route("/api/nql/fields", methods=["GET"])
+def nql_fields():
+    """Return the NQL field reference."""
+    return jsonify(get_field_reference())
+
+
+# ---------------------------------------------------------------------------
+# Routes — Legacy Nexthink API (backwards compat)
+# ---------------------------------------------------------------------------
+@app.route("/api/nexthink/device", methods=["GET"])
+def get_device_info():
+    return jsonify(NexthinkSimulator.mock_device_info())
+
+
+@app.route("/api/nexthink/persona/<persona_id>", methods=["GET"])
+def get_persona_info(persona_id):
+    return jsonify(NexthinkSimulator.mock_persona_info(persona_id))
+
+
+@app.route("/api/nexthink/action", methods=["POST"])
+def simulate_action():
+    data = request.get_json()
+    if not data or "action_id" not in data:
+        return jsonify({"error": "Missing 'action_id' parameter"}), 400
+    return jsonify(NexthinkSimulator.mock_action_result(
+        data["action_id"], data.get("success", True)
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Script upload
+# ---------------------------------------------------------------------------
+@app.route("/api/scripts/upload", methods=["POST"])
+def upload_script():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed. Allowed: .sh, .ps1, .bash, .txt"}), 400
+    try:
+        filename = secure_filename(file.filename)
+        file.save(str(UPLOAD_FOLDER / filename))
+        return jsonify({"status": "success", "filename": filename,
+                        "message": f"Script '{filename}' uploaded successfully"}), 201
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/scripts/list", methods=["GET"])
+def list_scripts():
+    try:
+        scripts = [
+            {"filename": f.name, "size": f.stat().st_size, "extension": f.suffix}
+            for f in UPLOAD_FOLDER.iterdir()
+            if f.is_file() and allowed_file(f.name)
+        ]
+        return jsonify({"scripts": sorted(scripts, key=lambda x: x["filename"])})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/scripts/<filename>", methods=["GET"])
+def get_script(filename):
+    try:
+        filename = secure_filename(filename)
+        filepath = UPLOAD_FOLDER / filename
+        if not filepath.exists() or not allowed_file(filename):
+            return jsonify({"error": "Script not found"}), 404
+        with open(filepath) as f:
+            content = f.read()
+        return jsonify({"filename": filename, "content": content,
+                        "type": "powershell" if filename.endswith(".ps1") else "bash"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Error handlers
+# ---------------------------------------------------------------------------
 @app.errorhandler(404)
 def not_found(error):
-    """Handle 404 errors"""
     return jsonify({"error": "Endpoint not found"}), 404
+
+
+@app.errorhandler(413)
+def request_too_large(error):
+    return jsonify({"error": f"Upload exceeds {MAX_UPLOAD_MB}MB limit"}), 413
 
 
 @app.errorhandler(500)
 def internal_error(error):
-    """Handle 500 errors"""
     return jsonify({"error": "Internal server error"}), 500
 
 
-if __name__ == '__main__':
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    fleet = get_fleet()
     print("Starting Nexthink Test Harness...")
-    print("Web Frontend: http://localhost:5000")
-    print("\nAPI Endpoints:")
-    print("  POST /api/execute/powershell - Execute PowerShell script")
-    print("  POST /api/execute/bash - Execute bash script")
-    print("  GET  /api/nexthink/device - Get device info")
-    print("  GET  /api/nexthink/persona/<id> - Get persona info")
-    print("  POST /api/nexthink/action - Simulate remote action")
-    print("  POST /api/scripts/upload - Upload a script file")
-    print("  GET  /api/scripts/list - List uploaded scripts")
-    print("  GET  /api/scripts/<filename> - Get script content")
-    print("\nOpen your browser to http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print(f"Web Frontend: http://localhost:{FLASK_PORT}")
+    print(f"Fleet: {len(fleet)} devices loaded")
+    print(f"Script timeout: {SCRIPT_TIMEOUT}s | Max script: {MAX_SCRIPT_LENGTH} chars")
+    app.run(debug=FLASK_DEBUG, host=FLASK_HOST, port=FLASK_PORT)

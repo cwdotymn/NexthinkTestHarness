@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu-22.04\\\\home\\\\cwdoty\\\\source\\\\NexthinkTestHarness\")",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu-22.04\\\\home\\\\cwdoty\\\\source\\\\NexthinkTestHarness\\\\tests\")",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu-22.04\\\\home\\\\cwdoty\\\\source\\\\NexthinkTestHarness\\\\test_scripts\")",
+      "Bash(curl -s http://localhost:5000/static/style.css)",
+      "Bash(git add *)",
+      "Bash(git rebase *)"
+    ]
+  }
+}

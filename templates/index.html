@@ -8,73 +8,248 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <header class="header">
             <h1>🔧 Nexthink Test Harness</h1>
-            <p class="subtitle">Test PowerShell & Bash scripts without Nexthink access</p>
+            <p class="subtitle">Simulate Nexthink capabilities — 100-device fleet, NQL queries, Remote Actions</p>
         </header>
 
-        <!-- Main Content -->
         <main class="main-content">
-            <!-- Navigation Tabs -->
             <nav class="tabs">
-                <button class="tab-btn active" data-tab="script-execution">Script Execution</button>
-                <button class="tab-btn" data-tab="nexthink-api">Nexthink API</button>
+                <button class="tab-btn active" data-tab="nql">NQL Query</button>
+                <button class="tab-btn" data-tab="fleet">Fleet</button>
+                <button class="tab-btn" data-tab="remote-actions">Remote Actions</button>
+                <button class="tab-btn" data-tab="script-execution">Script Execution</button>
                 <button class="tab-btn" data-tab="examples">Examples</button>
                 <button class="tab-btn" data-tab="history">History</button>
             </nav>
 
-            <!-- Tab 1: Script Execution -->
-            <section id="script-execution" class="tab-content active">
-                <h2>Execute Scripts</h2>
-                
+            <!-- ============================================================
+                 Tab: NQL Query
+            ============================================================ -->
+            <section id="nql" class="tab-content active">
+                <h2>NQL Query</h2>
+                <p class="section-desc">Query the 100-device synthetic fleet using Nexthink Query Language.</p>
+
+                <div class="card">
+                    <div class="nql-example-bar">
+                        <span class="label">Examples:</span>
+                        <button class="btn btn-chip" data-nql="(device) where os.name = &quot;Windows 11&quot;">Win 11 devices</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.compliance = &quot;non-compliant&quot;">Non-compliant</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.cpu_usage > 80">High CPU (&gt;80%)</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.disk_free_pct < 15">Low disk (&lt;15%)</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.site = &quot;Monheim&quot;">Monheim devices</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.last_seen > 7">Stale (&gt;7 days)</button>
+                        <button class="btn btn-chip" data-nql="(device) where device.department = &quot;IT&quot; and device.compliance = &quot;compliant&quot;">IT compliant</button>
+                        <button class="btn btn-chip" data-nql="(device) select device.name, device.site, device.cpu_usage where device.cpu_usage > 70 limit 10">High CPU – select fields</button>
+                    </div>
+
+                    <div class="form-group" style="margin-top:16px">
+                        <label for="nql-input">Query:</label>
+                        <textarea id="nql-input" rows="3" placeholder="(device) where os.name = &quot;Windows 11&quot; and device.compliance = &quot;non-compliant&quot;"></textarea>
+                    </div>
+                    <button id="nql-run-btn" class="btn btn-primary">▶ Run Query</button>
+                    <button id="nql-fields-btn" class="btn btn-secondary">📋 Field Reference</button>
+                </div>
+
+                <!-- Field reference panel -->
+                <div id="nql-fields-panel" class="card hidden">
+                    <h3>NQL Field Reference</h3>
+                    <table class="field-table">
+                        <thead><tr><th>NQL Field</th><th>Type</th><th>Example Values</th></tr></thead>
+                        <tbody id="nql-fields-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Results -->
+                <div id="nql-results-panel" class="card hidden">
+                    <div class="results-header">
+                        <h3>Results <span id="nql-count" class="count-badge"></span></h3>
+                        <button id="nql-copy-btn" class="btn btn-small btn-secondary">📋 Copy JSON</button>
+                    </div>
+                    <div id="nql-error" class="error-box hidden"></div>
+                    <div class="table-scroll">
+                        <table id="nql-table" class="data-table">
+                            <thead id="nql-thead"></thead>
+                            <tbody id="nql-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Tab: Fleet
+            ============================================================ -->
+            <section id="fleet" class="tab-content">
+                <h2>Device Fleet</h2>
+                <p class="section-desc">100 synthetic devices — 80% St. Paul, 20% Monheim.</p>
+
+                <!-- Stats bar -->
+                <div id="fleet-stats" class="stats-grid"></div>
+
+                <!-- Filters -->
+                <div class="card">
+                    <h3>Filter</h3>
+                    <div class="filter-row">
+                        <div class="form-group">
+                            <label>Site</label>
+                            <select id="filter-site">
+                                <option value="">All</option>
+                                <option>St. Paul</option>
+                                <option>Monheim</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Department</label>
+                            <select id="filter-dept">
+                                <option value="">All</option>
+                                <option>IT</option>
+                                <option>Finance</option>
+                                <option>HR</option>
+                                <option>Operations</option>
+                                <option>Legal</option>
+                                <option>Marketing</option>
+                                <option>Sales</option>
+                                <option>Engineering</option>
+                                <option>R&D</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Compliance</label>
+                            <select id="filter-compliance">
+                                <option value="">All</option>
+                                <option value="compliant">Compliant</option>
+                                <option value="non-compliant">Non-compliant</option>
+                                <option value="pending">Pending</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>OS</label>
+                            <select id="filter-os">
+                                <option value="">All</option>
+                                <option>Windows 11</option>
+                                <option>Windows 10</option>
+                            </select>
+                        </div>
+                        <button id="fleet-filter-btn" class="btn btn-primary" style="align-self:flex-end">Apply</button>
+                        <button id="fleet-reset-btn" class="btn btn-secondary" style="align-self:flex-end">Reset</button>
+                    </div>
+                </div>
+
+                <!-- Fleet table -->
+                <div class="card">
+                    <div class="results-header">
+                        <h3>Devices <span id="fleet-count" class="count-badge"></span></h3>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table" id="fleet-table">
+                            <thead>
+                                <tr>
+                                    <th>Device ID</th>
+                                    <th>Name</th>
+                                    <th>Site</th>
+                                    <th>Dept</th>
+                                    <th>OS</th>
+                                    <th>CPU%</th>
+                                    <th>Disk Free%</th>
+                                    <th>Last Seen</th>
+                                    <th>Compliance</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fleet-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Device detail modal -->
+                <div id="device-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="modal-title">Device Detail</h3>
+                            <button id="modal-close" class="btn-icon">✕</button>
+                        </div>
+                        <div id="modal-body" class="modal-body"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Tab: Remote Actions
+            ============================================================ -->
+            <section id="remote-actions" class="tab-content">
+                <h2>Remote Actions</h2>
+                <p class="section-desc">Target a device from the fleet and execute a script against it, simulating Nexthink Remote Actions.</p>
+
+                <div class="card">
+                    <h3>Target Device</h3>
+                    <div class="form-group">
+                        <label for="ra-device-id">Device ID:</label>
+                        <div class="input-row">
+                            <input type="text" id="ra-device-id" placeholder="e.g. dev-0001">
+                            <button id="ra-lookup-btn" class="btn btn-secondary">Look Up</button>
+                        </div>
+                    </div>
+                    <div id="ra-device-info" class="device-info-card hidden"></div>
+                </div>
+
+                <div class="card">
+                    <h3>Action</h3>
+                    <div class="form-group">
+                        <label for="ra-action-name">Action Name:</label>
+                        <input type="text" id="ra-action-name" placeholder="e.g. Remediate-DiskCleanup" value="Custom-Action">
+                    </div>
+                    <div class="form-group">
+                        <label>Script Type:</label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="ra-script-type" value="powershell" checked> PowerShell</label>
+                            <label><input type="radio" name="ra-script-type" value="bash"> Bash</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="ra-script">Script (optional — runs locally to simulate execution):</label>
+                        <textarea id="ra-script" rows="8" placeholder="Write-Host &quot;Running on $env:COMPUTERNAME&quot;&#10;# Your remediation script here"></textarea>
+                    </div>
+                    <button id="ra-execute-btn" class="btn btn-primary">▶ Execute Remote Action</button>
+                </div>
+
+                <div id="ra-results" class="card hidden">
+                    <h3>Action Result</h3>
+                    <div id="ra-result-body"></div>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Tab: Script Execution
+            ============================================================ -->
+            <section id="script-execution" class="tab-content">
+                <h2>Script Execution</h2>
+
                 <div class="form-group">
-                    <label for="script-type">Script Type:</label>
+                    <label>Script Type:</label>
                     <div class="radio-group">
-                        <label>
-                            <input type="radio" name="script-type" value="bash" checked>
-                            Bash Script
-                        </label>
-                        <label>
-                            <input type="radio" name="script-type" value="powershell">
-                            PowerShell Script
-                        </label>
+                        <label><input type="radio" name="script-type" value="bash" checked> Bash</label>
+                        <label><input type="radio" name="script-type" value="powershell"> PowerShell</label>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label for="script-content">Script Content:</label>
-                    <textarea 
-                        id="script-content" 
-                        placeholder="Enter your script here...&#10;&#10;Example (Bash):&#10;echo 'Hello World'&#10;whoami&#10;date"
-                        rows="10"
-                    ></textarea>
+                    <textarea id="script-content" placeholder="Enter your script here..." rows="10"></textarea>
                 </div>
 
                 <div class="form-group">
-                    <label for="script-args">Arguments (optional):</label>
-                    <input 
-                        type="text" 
-                        id="script-args" 
-                        placeholder="Separate multiple arguments with commas"
-                    >
+                    <label for="script-args">Arguments (comma-separated, optional):</label>
+                    <input type="text" id="script-args" placeholder="arg1, arg2">
                 </div>
 
-                <!-- Script Upload Section -->
                 <div class="card">
-                    <h3>📤 Upload Scripts</h3>
+                    <h3>📤 Upload Script</h3>
                     <div class="form-group">
-                        <label for="script-file">Choose Script File:</label>
-                        <input 
-                            type="file" 
-                            id="script-file" 
-                            accept=".sh,.ps1,.bash,.txt"
-                        >
+                        <input type="file" id="script-file" accept=".sh,.ps1,.bash,.txt">
                     </div>
-                    <button id="upload-btn" class="btn btn-secondary">Upload Script</button>
+                    <button id="upload-btn" class="btn btn-secondary">Upload</button>
                 </div>
 
-                <!-- Uploaded Scripts -->
                 <div id="uploaded-scripts" class="card hidden">
                     <h3>📚 Uploaded Scripts</h3>
                     <div id="scripts-list" class="scripts-list"></div>
@@ -82,7 +257,6 @@
 
                 <button id="execute-btn" class="btn btn-primary">▶ Execute Script</button>
 
-                <!-- Results -->
                 <div id="execution-results" class="results hidden">
                     <h3>Results</h3>
                     <div class="result-item">
@@ -94,164 +268,53 @@
                         <div id="result-return-code" class="code"></div>
                     </div>
                     <div class="result-item">
-                        <label>Standard Output:</label>
+                        <label>stdout:</label>
                         <pre id="result-stdout" class="output"></pre>
                     </div>
                     <div class="result-item">
-                        <label>Standard Error:</label>
+                        <label>stderr:</label>
                         <pre id="result-stderr" class="output"></pre>
                     </div>
                     <button id="copy-results-btn" class="btn btn-secondary">📋 Copy Results</button>
                 </div>
             </section>
 
-            <!-- Tab 2: Nexthink API -->
-            <section id="nexthink-api" class="tab-content">
-                <h2>Nexthink API Simulation</h2>
-
-                <!-- Device Info Card -->
-                <div class="card">
-                    <h3>Device Information</h3>
-                    <button id="get-device-btn" class="btn btn-secondary">Get Device Info</button>
-                    <div id="device-info" class="json-display hidden"></div>
-                </div>
-
-                <!-- Persona Info Card -->
-                <div class="card">
-                    <h3>Persona Information</h3>
-                    <div class="form-group">
-                        <label for="persona-id">Persona ID:</label>
-                        <input 
-                            type="text" 
-                            id="persona-id" 
-                            placeholder="Enter persona ID"
-                            value="persona-001"
-                        >
-                    </div>
-                    <button id="get-persona-btn" class="btn btn-secondary">Get Persona Info</button>
-                    <div id="persona-info" class="json-display hidden"></div>
-                </div>
-
-                <!-- Action Simulation Card -->
-                <div class="card">
-                    <h3>Simulate Remote Action</h3>
-                    <div class="form-group">
-                        <label for="action-id">Action ID:</label>
-                        <input 
-                            type="text" 
-                            id="action-id" 
-                            placeholder="Enter action ID"
-                            value="action-001"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label for="action-success">Result:</label>
-                        <div class="radio-group">
-                            <label>
-                                <input type="radio" name="action-success" value="true" checked>
-                                Success
-                            </label>
-                            <label>
-                                <input type="radio" name="action-success" value="false">
-                                Failure
-                            </label>
-                        </div>
-                    </div>
-                    <button id="simulate-action-btn" class="btn btn-secondary">Simulate Action</button>
-                    <div id="action-result" class="json-display hidden"></div>
-                </div>
-            </section>
-
-            <!-- Tab 3: Examples -->
+            <!-- ============================================================
+                 Tab: Examples
+            ============================================================ -->
             <section id="examples" class="tab-content">
                 <h2>Example Scripts</h2>
-                
                 <div class="examples-grid">
-                    <!-- Bash Examples -->
                     <div class="examples-section">
                         <h3>Bash Examples</h3>
-                        <div class="example-list">
-                            <div class="example-card">
-                                <h4>System Information</h4>
-                                <p>Display system info, hostname, kernel version, CPU cores, and memory</p>
-                                <button class="btn btn-small" data-example="bash_system_info">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Network Test</h4>
-                                <p>Test connectivity to 8.8.8.8 with ping</p>
-                                <button class="btn btn-small" data-example="bash_network_test">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Disk Usage</h4>
-                                <p>Check disk usage on root partition</p>
-                                <button class="btn btn-small" data-example="bash_disk_usage">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Service Status</h4>
-                                <p>Check if a system service is running</p>
-                                <button class="btn btn-small" data-example="bash_service_check">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Persona Script</h4>
-                                <p>Example persona-specific bash script</p>
-                                <button class="btn btn-small" data-example="bash_persona">Load</button>
-                            </div>
-                        </div>
+                        <div class="example-list" id="bash-examples"></div>
                     </div>
-
-                    <!-- PowerShell Examples -->
                     <div class="examples-section">
                         <h3>PowerShell Examples</h3>
-                        <div class="example-list">
-                            <div class="example-card">
-                                <h4>System Information</h4>
-                                <p>Get computer info, OS, RAM, and other system details</p>
-                                <button class="btn btn-small" data-example="ps_system_info">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Network Test</h4>
-                                <p>Test connectivity to 8.8.8.8</p>
-                                <button class="btn btn-small" data-example="ps_network_test">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Check Service</h4>
-                                <p>Check status of a Windows service</p>
-                                <button class="btn btn-small" data-example="ps_service_check">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Running Processes</h4>
-                                <p>Get high-CPU processes</p>
-                                <button class="btn btn-small" data-example="ps_processes">Load</button>
-                            </div>
-                            <div class="example-card">
-                                <h4>Persona Script</h4>
-                                <p>Example persona-specific PowerShell script</p>
-                                <button class="btn btn-small" data-example="ps_persona">Load</button>
-                            </div>
-                        </div>
+                        <div class="example-list" id="ps-examples"></div>
                     </div>
                 </div>
             </section>
 
-            <!-- Tab 4: History -->
+            <!-- ============================================================
+                 Tab: History
+            ============================================================ -->
             <section id="history" class="tab-content">
                 <h2>Execution History</h2>
                 <div class="history-controls">
                     <button id="clear-history-btn" class="btn btn-secondary">🗑️ Clear History</button>
                 </div>
                 <div id="history-list" class="history-list">
-                    <p class="empty-state">No execution history yet. Run some scripts to see them here.</p>
+                    <p class="empty-state">No history yet.</p>
                 </div>
             </section>
         </main>
 
-        <!-- Footer -->
         <footer class="footer">
-            <p>Nexthink Test Harness v1.0 | <a href="https://github.com" target="_blank">GitHub</a></p>
+            <p>Nexthink Test Harness v1.2 — 100-device synthetic fleet</p>
         </footer>
     </div>
 
-    <!-- Loading Spinner -->
     <div id="loading-spinner" class="spinner hidden">
         <div class="spinner-content">
             <div class="spinner-circle"></div>
