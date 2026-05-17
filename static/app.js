@@ -580,6 +580,188 @@ async function loadExamplesFromAPI() {
 }
 
 // ================================================================
+// Windows Host Tab
+// ================================================================
+let winInfoLoaded = false;
+
+async function loadWindowsInfo() {
+    const body = document.getElementById('win-info-body');
+    body.innerHTML = '<p class="empty-state" style="padding:16px">Loading...</p>';
+    try {
+        const res = await fetch(`${API_BASE}/api/windows/info`);
+        const d = await res.json();
+        if (!res.ok || d.error) {
+            body.innerHTML = `<div class="error-box">${d.error || 'Failed to load Windows info'}</div>`;
+            return;
+        }
+
+        const drivesHtml = Array.isArray(d.drives) && d.drives.length
+            ? `<table class="data-table" style="margin-top:14px">
+                <thead><tr><th>Drive</th><th>Root</th><th>Used GB</th><th>Free GB</th><th></th></tr></thead>
+                <tbody>
+                ${d.drives.map(dr => `
+                    <tr>
+                        <td><strong>${dr.name}:</strong></td>
+                        <td><code>${dr.root || ''}</code></td>
+                        <td>${dr.used_gb != null ? dr.used_gb : '—'}</td>
+                        <td>${dr.free_gb != null ? dr.free_gb : '—'}</td>
+                        <td><button class="btn btn-small" onclick="browseWindowsPath('${dr.name}:\\\\')">Browse</button></td>
+                    </tr>`).join('')}
+                </tbody></table>`
+            : '';
+
+        body.innerHTML = `
+            <div class="detail-grid">
+                <span class="dk">Computer Name</span> <span class="dv">${d.computer_name || '—'}</span>
+                <span class="dk">User</span>           <span class="dv">${d.username || '—'}</span>
+                <span class="dk">OS</span>             <span class="dv">${d.os || '—'}</span>
+                <span class="dk">Build</span>          <span class="dv">${d.os_build || '—'} (${d.os_version || '—'})</span>
+                <span class="dk">RAM</span>            <span class="dv">${d.total_ram_gb != null ? d.total_ram_gb + ' GB' : '—'}</span>
+                <span class="dk">Processor</span>      <span class="dv">${d.processor || '—'}</span>
+                <span class="dk">Uptime</span>         <span class="dv">${d.uptime_days != null ? d.uptime_days + ' days' : '—'}</span>
+            </div>
+            ${drivesHtml}
+        `;
+        winInfoLoaded = true;
+    } catch (err) {
+        body.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
+    }
+}
+
+async function browseWindowsPath(winPath) {
+    document.getElementById('win-browse-path').value = winPath;
+    const errEl  = document.getElementById('win-browser-error');
+    const body   = document.getElementById('win-browser-body');
+    const crumb  = document.getElementById('win-breadcrumb');
+
+    errEl.classList.add('hidden');
+    body.classList.add('hidden');
+    showSpinner(true);
+
+    try {
+        const res  = await fetch(`${API_BASE}/api/windows/browse?path=${encodeURIComponent(winPath)}`);
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+            errEl.textContent = data.error || 'Unknown error';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
+        // Breadcrumb
+        renderWinBreadcrumb(data.path, crumb);
+
+        // Table rows
+        const tbody = document.getElementById('win-browser-tbody');
+        let rows = '';
+
+        if (data.parent) {
+            rows += `<tr>
+                <td colspan="4" style="cursor:pointer;color:var(--primary-color)" onclick="browseWindowsPath('${data.parent.replace(/\\/g, '\\\\')}')">
+                    📁 ..
+                </td><td></td></tr>`;
+        }
+
+        rows += data.entries.map(e => {
+            const isDir  = e.type === 'dir';
+            const icon   = isDir ? '📁' : fileIcon(e.ext);
+            const size   = e.size != null ? formatBytes(e.size) : '—';
+            const mod    = e.modified ? e.modified.replace('T', ' ').replace('Z', '') : '—';
+            const denied = e.access_denied ? ' <span style="color:#dc2626;font-size:.75rem">(access denied)</span>' : '';
+            const winP   = (e.windows_path || '').replace(/\\/g, '\\\\');
+
+            let action = '';
+            if (isDir && !e.access_denied) {
+                action = `<button class="btn btn-small" onclick="browseWindowsPath('${winP}')">Open</button>`;
+            } else if (['.ps1', '.sh', '.bash', '.txt'].includes(e.ext) && !e.access_denied) {
+                action = `<button class="btn btn-small" onclick="loadWinFileIntoEditor('${winP}', '${e.ext}')">Load</button>`;
+            }
+
+            const namePart = isDir && !e.access_denied
+                ? `<span style="cursor:pointer;color:var(--primary-color)" onclick="browseWindowsPath('${winP}')">${icon} ${e.name}</span>${denied}`
+                : `${icon} ${e.name}${denied}`;
+
+            return `<tr>
+                <td>${namePart}</td>
+                <td>${isDir ? 'Folder' : (e.ext ? e.ext.slice(1).toUpperCase() : 'File')}</td>
+                <td>${size}</td>
+                <td style="font-size:.82rem;color:var(--text-secondary)">${mod}</td>
+                <td>${action}</td>
+            </tr>`;
+        }).join('');
+
+        tbody.innerHTML = rows || '<tr><td colspan="5" class="empty-state">Empty folder</td></tr>';
+        body.classList.remove('hidden');
+
+        // Switch to Windows tab if not already there
+        document.querySelector('[data-tab="windows"]').click();
+    } catch (err) {
+        errEl.textContent = 'Error: ' + err.message;
+        errEl.classList.remove('hidden');
+    } finally {
+        showSpinner(false);
+    }
+}
+
+function renderWinBreadcrumb(winPath, el) {
+    // C:\Users\cwdoty  →  ['C:', 'Users', 'cwdoty']
+    const parts = winPath.replace(/\\/g, '/').split('/').filter(Boolean);
+    let accumulated = '';
+    const html = parts.map((part, i) => {
+        accumulated += (i === 0 ? part + '\\' : part + '\\');
+        const pathSoFar = accumulated.replace(/\\/g, '\\\\');
+        const isLast = i === parts.length - 1;
+        return isLast
+            ? `<span class="bc-current">${part}</span>`
+            : `<span class="bc-link" onclick="browseWindowsPath('${pathSoFar}')">${part}</span><span class="bc-sep">›</span>`;
+    }).join('');
+    el.innerHTML = html;
+    el.classList.remove('hidden');
+}
+
+function fileIcon(ext) {
+    if (ext === '.ps1') return '💠';
+    if (ext === '.sh' || ext === '.bash') return '📜';
+    if (ext === '.txt') return '📝';
+    if (ext === '.exe') return '⚙️';
+    if (ext === '.log') return '📋';
+    return '📄';
+}
+
+function formatBytes(bytes) {
+    if (bytes == null) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+async function loadWinFileIntoEditor(winPath, ext) {
+    // Read the file via the browse endpoint isn't ideal — just put the path in a PS script
+    const scriptType = (ext === '.ps1') ? 'powershell' : 'bash';
+    const psScript = ext === '.ps1'
+        ? `Get-Content -Path '${winPath.replace(/\\\\/g, '\\')}' -Raw`
+        : `cat '${winPath.replace(/\\\\/g, '\\')}'`;
+
+    document.querySelector(`input[value="${scriptType}"]`).checked = true;
+    document.getElementById('script-content').value = psScript;
+    document.querySelector('[data-tab="script-execution"]').click();
+}
+
+document.getElementById('win-info-refresh').addEventListener('click', loadWindowsInfo);
+document.getElementById('win-browse-btn').addEventListener('click', () => {
+    browseWindowsPath(document.getElementById('win-browse-path').value.trim() || 'C:\\');
+});
+document.getElementById('win-browse-path').addEventListener('keydown', e => {
+    if (e.key === 'Enter') browseWindowsPath(e.target.value.trim() || 'C:\\');
+});
+
+// Auto-load info when Windows tab is first opened
+document.querySelector('[data-tab="windows"]').addEventListener('click', () => {
+    if (!winInfoLoaded) loadWindowsInfo();
+});
+
+// ================================================================
 // Initialise
 // ================================================================
 document.addEventListener('DOMContentLoaded', () => {

@@ -20,6 +20,7 @@
                 <button class="tab-btn" data-tab="remote-actions">Remote Actions</button>
                 <button class="tab-btn" data-tab="script-execution">Script Execution</button>
                 <button class="tab-btn" data-tab="examples">Examples</button>
+                <button class="tab-btn" data-tab="windows">Windows Host</button>
                 <button class="tab-btn" data-tab="history">History</button>
             </nav>
 
@@ -292,6 +293,53 @@
                     <div class="examples-section">
                         <h3>PowerShell Examples</h3>
                         <div class="example-list" id="ps-examples"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================
+                 Tab: Windows Host
+            ============================================================ -->
+            <section id="windows" class="tab-content">
+                <h2>Windows Host</h2>
+                <p class="section-desc">Inspect your local Windows machine and browse its filesystem via WSL interop.</p>
+
+                <!-- Host Info -->
+                <div class="card">
+                    <div class="results-header">
+                        <h3>Host Info</h3>
+                        <button id="win-info-refresh" class="btn btn-secondary btn-small">↺ Refresh</button>
+                    </div>
+                    <div id="win-info-body"><p class="empty-state" style="padding:20px">Click Refresh or switch to this tab to load info.</p></div>
+                </div>
+
+                <!-- Filesystem Browser -->
+                <div class="card">
+                    <h3>Filesystem Browser</h3>
+                    <div class="form-group">
+                        <label>Windows Path</label>
+                        <div class="input-row">
+                            <input type="text" id="win-browse-path" placeholder="C:\Users" value="C:\">
+                            <button id="win-browse-btn" class="btn btn-primary">Browse</button>
+                        </div>
+                    </div>
+                    <div id="win-breadcrumb" class="win-breadcrumb hidden"></div>
+                    <div id="win-browser-error" class="error-box hidden"></div>
+                    <div id="win-browser-body" class="hidden">
+                        <div class="table-scroll">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Size</th>
+                                        <th>Modified</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="win-browser-tbody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </section>

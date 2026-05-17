@@ -3,8 +3,11 @@ Nexthink Test Harness - Flask Application
 A test harness for simulating Nexthink remote actions, NQL queries, and device fleet management.
 """
 
+import json
 import os
+import re
 import subprocess
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,16 +90,42 @@ class ScriptExecutor:
     @classmethod
     def execute_powershell(cls, script_content, args=None):
         args = args or []
-        last_error = None
-        for binary in ("powershell.exe", "pwsh"):
-            cmd = [binary, "-NoProfile", "-Command", script_content] + args
-            try:
-                return cls._run(cmd, SCRIPT_TIMEOUT)
-            except FileNotFoundError as exc:
-                last_error = exc
-                continue
-        return {"status": "error", "error": "PowerShell not found (tried powershell.exe and pwsh)",
-                "stdout": "", "stderr": "", "return_code": -1}
+
+        # Write to a temp .ps1 file so we can use -File (handles multiline + special chars)
+        script_id = uuid.uuid4().hex[:8]
+        win_temp_dir = Path("/mnt/c/Windows/Temp")
+        temp_file: Path | None = None
+        try:
+            if win_temp_dir.is_dir():
+                temp_file = win_temp_dir / f"nxth_{script_id}.ps1"
+                temp_file.write_text(script_content, encoding="utf-8", newline="\r\n")
+        except OSError:
+            temp_file = None
+
+        try:
+            last_error = None
+            for binary in ("powershell.exe", "pwsh"):
+                if temp_file:
+                    if binary == "powershell.exe":
+                        script_arg = f"C:\\Windows\\Temp\\nxth_{script_id}.ps1"
+                    else:
+                        script_arg = str(temp_file)
+                    cmd = [binary, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_arg] + args
+                else:
+                    cmd = [binary, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script_content] + args
+                try:
+                    return cls._run(cmd, SCRIPT_TIMEOUT)
+                except FileNotFoundError as exc:
+                    last_error = exc
+                    continue
+            return {"status": "error", "error": "PowerShell not found (tried powershell.exe and pwsh)",
+                    "stdout": "", "stderr": "", "return_code": -1}
+        finally:
+            if temp_file:
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
 
     @classmethod
     def execute_bash(cls, script_content, args=None):
@@ -414,6 +443,132 @@ def get_script(filename):
             content = f.read()
         return jsonify({"filename": filename, "content": content,
                         "type": "powershell" if filename.endswith(".ps1") else "bash"})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Windows host helpers
+# ---------------------------------------------------------------------------
+def _windows_to_wsl(win_path: str) -> str | None:
+    """C:\\Users\\foo  →  /mnt/c/Users/foo"""
+    path = win_path.strip().replace("\\", "/")
+    m = re.match(r"^([A-Za-z]):(.*)", path)
+    if not m:
+        return None
+    rest = m.group(2) or "/"
+    return f"/mnt/{m.group(1).lower()}{rest}"
+
+
+def _wsl_to_windows(wsl_path: str) -> str | None:
+    """/mnt/c/Users/foo  →  C:\\Users\\foo"""
+    m = re.match(r"^/mnt/([a-z])(.*)", wsl_path)
+    if not m:
+        return None
+    rest = m.group(2).replace("/", "\\") or "\\"
+    return f"{m.group(1).upper()}:{rest}"
+
+
+_WIN_INFO_SCRIPT = r"""
+try {
+    $os  = Get-CimInstance Win32_OperatingSystem
+    $cs  = Get-CimInstance Win32_ComputerSystem
+    $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+    $up  = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalDays, 1)
+    $drives = @(Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root } | ForEach-Object {
+        @{
+            name    = $_.Name
+            root    = $_.Root
+            free_gb = if ($null -ne $_.Free) { [math]::Round($_.Free/1GB,1) } else { $null }
+            used_gb = if ($null -ne $_.Used) { [math]::Round($_.Used/1GB,1) } else { $null }
+        }
+    })
+    @{
+        computer_name = $env:COMPUTERNAME
+        username      = $env:USERNAME
+        os            = $os.Caption
+        os_build      = $os.BuildNumber
+        os_version    = $os.Version
+        total_ram_gb  = [math]::Round($cs.TotalPhysicalMemory/1GB,1)
+        processor     = $cpu
+        uptime_days   = $up
+        drives        = $drives
+    } | ConvertTo-Json -Depth 3
+} catch {
+    @{ error = $_.Exception.Message } | ConvertTo-Json
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Routes — Windows host
+# ---------------------------------------------------------------------------
+@app.route("/api/windows/info", methods=["GET"])
+def windows_info():
+    result = ScriptExecutor.execute_powershell(_WIN_INFO_SCRIPT)
+    if result["status"] != "success" or not result["stdout"].strip():
+        return jsonify({"error": result.get("stderr") or result.get("error") or "PowerShell unavailable"}), 500
+    try:
+        return jsonify(json.loads(result["stdout"]))
+    except json.JSONDecodeError:
+        return jsonify({"raw": result["stdout"]})
+
+
+@app.route("/api/windows/browse", methods=["GET"])
+def windows_browse():
+    win_path = request.args.get("path", "C:\\")
+    wsl_path = _windows_to_wsl(win_path)
+
+    if not wsl_path or not wsl_path.startswith("/mnt/"):
+        return jsonify({"error": "Must be a Windows drive path (e.g. C:\\Users)"}), 400
+
+    # Prevent path traversal
+    try:
+        resolved = str(Path(wsl_path).resolve())
+    except Exception:
+        resolved = wsl_path
+    if not resolved.startswith("/mnt/"):
+        return jsonify({"error": "Path traversal not allowed"}), 400
+
+    try:
+        entries = []
+        with os.scandir(resolved) as it:
+            for entry in it:
+                try:
+                    stat = entry.stat()
+                    entries.append({
+                        "name": entry.name,
+                        "type": "dir" if entry.is_dir() else "file",
+                        "size": stat.st_size if not entry.is_dir() else None,
+                        "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "windows_path": _wsl_to_windows(f"{resolved}/{entry.name}"),
+                        "ext": Path(entry.name).suffix.lower() if not entry.is_dir() else None,
+                    })
+                except (PermissionError, OSError):
+                    entries.append({
+                        "name": entry.name,
+                        "type": "dir" if entry.is_dir(follow_symlinks=False) else "file",
+                        "size": None, "modified": None, "ext": None,
+                        "windows_path": _wsl_to_windows(f"{resolved}/{entry.name}"),
+                        "access_denied": True,
+                    })
+
+        entries.sort(key=lambda e: (0 if e["type"] == "dir" else 1, e["name"].lower()))
+
+        parent_wsl = str(Path(resolved).parent)
+        is_root = re.match(r"^/mnt/[a-z]/?$", resolved)
+        parent_win = None if is_root else _wsl_to_windows(parent_wsl)
+
+        return jsonify({
+            "path": win_path,
+            "parent": parent_win,
+            "entries": entries,
+            "count": len(entries),
+        })
+    except PermissionError:
+        return jsonify({"error": f"Access denied: {win_path}"}), 403
+    except FileNotFoundError:
+        return jsonify({"error": f"Path not found: {win_path}"}), 404
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
